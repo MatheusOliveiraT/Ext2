@@ -89,6 +89,28 @@ struct ext2_inode {
     uint8_t  i_osd2[12];
 };
 
+void info(FILE* fp, struct ext2_super_block* sb) {
+    fseek(fp, 0, SEEK_END);
+    long image_size = ftell(fp);
+
+    uint32_t block_size = 1024 << sb->s_log_block_size;
+    uint32_t groups_count = (sb->s_blocks_count + sb->s_blocks_per_group - 1) / sb->s_blocks_per_group;
+    uint32_t inodetable_size = (sb->s_inodes_per_group * sb->s_inode_size) / block_size;
+
+    printf("Volume name.....: %.16s\n", sb->s_volume_name);
+    printf("Image size......: %ld bytes\n", image_size);
+    printf("Free space......: %u KiB\n", sb->s_free_blocks_count * block_size / 1024);
+    printf("Free inodes.....: %u\n", sb->s_free_inodes_count);
+    printf("Free blocks.....: %u\n", sb->s_free_blocks_count);
+    printf("Block size......: %u bytes\n", block_size);
+    printf("Inode size......: %u bytes\n", sb->s_inode_size);
+    printf("Groups count....: %u\n", groups_count);
+    printf("Groups size.....: %u blocks\n", sb->s_blocks_per_group);
+    printf("Groups inodes...: %u inodes\n", sb->s_inodes_per_group);
+    printf("Inodetable size.: %u blocks\n", inodetable_size);
+    fseek(fp, BASE_OFFSET, SEEK_SET);
+}
+
 void print_superblock(struct ext2_super_block* sb) {
     printf("inodes count: %u\n", sb->s_inodes_count);
     printf("blocks count: %u\n", sb->s_blocks_count);
@@ -281,6 +303,8 @@ int main(int argc, char *argv[]) {
             } else {
                 printf("invalid sintax.\n");
             }
+        } else if (strcmp(token, "info") == 0) {
+            info(fp, &sb);
         } else if (strcmp(token, "exit") == 0) {
             break;
         } else {
