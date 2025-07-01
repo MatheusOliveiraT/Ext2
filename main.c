@@ -7,6 +7,7 @@
 #define EXT2_SUPER_MAGIC 0xEF53
 
 char dir_atual[256] = "/";
+int inode_dir_atual = 2;
 
 struct ext2_super_block {
     uint32_t s_inodes_count;
@@ -89,6 +90,14 @@ struct ext2_inode {
     uint8_t  i_osd2[12];
 };
 
+struct ext2_dir_entry {
+    uint32_t inode;
+    uint16_t rec_len;
+    uint8_t  name_len;
+    uint8_t  file_type;
+    char     name[];
+};
+
 void info(FILE* fp, struct ext2_super_block* sb) {
     fseek(fp, 0, SEEK_END);
     long image_size = ftell(fp);
@@ -108,7 +117,6 @@ void info(FILE* fp, struct ext2_super_block* sb) {
     printf("Groups size.....: %u blocks\n", sb->s_blocks_per_group);
     printf("Groups inodes...: %u inodes\n", sb->s_inodes_per_group);
     printf("Inodetable size.: %u blocks\n", inodetable_size);
-    fseek(fp, BASE_OFFSET, SEEK_SET);
 }
 
 void print_superblock(struct ext2_super_block* sb) {
@@ -178,15 +186,12 @@ void print_groups(FILE* fp, struct ext2_super_block* sb) {
     uint32_t block_size = 1024 << sb->s_log_block_size;
     uint32_t total_blocks = (sb->s_blocks_count + sb->s_blocks_per_group - 1) / sb->s_blocks_per_group;
     uint32_t desc_size = sb->s_desc_size ? sb->s_desc_size : 32;
-
     uint64_t offset;
     if (block_size == 1024) { 
         offset = 2 * block_size;
     } else { 
         offset = block_size;
     }
-
-    fseek(fp, BASE_OFFSET, SEEK_SET);
     for (uint32_t i = 0; i < total_blocks; i++) {
         struct ext2_group_desc gd;
         
@@ -201,16 +206,14 @@ void print_groups(FILE* fp, struct ext2_super_block* sb) {
         printf("free inodes count: %u\n", gd.bg_free_inodes_count);
         printf("used dirs count: %u\n\n", gd.bg_used_dirs_count);
     }
-    fseek(fp, BASE_OFFSET, SEEK_SET);
 }   
 
-void print_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
+struct ext2_inode* get_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
     uint32_t block_size = 1024 << sb->s_log_block_size;
     uint32_t group = (inode_num - 1) / sb->s_inodes_per_group;
     uint32_t index = (inode_num - 1) % sb->s_inodes_per_group;
     uint64_t gdt_offset = (block_size == 1024) ? 2 * block_size : block_size;
 
-    fseek(fp, BASE_OFFSET, SEEK_SET);
     struct ext2_group_desc gd;
     fseek(fp, gdt_offset + group * sizeof(gd), SEEK_SET);
     fread(&gd, sizeof(gd), 1, fp);
@@ -219,30 +222,77 @@ void print_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
     uint32_t inode_size = sb->s_inode_size;
     uint64_t inode_offset = (uint64_t)inode_table_block * block_size + index * inode_size;
 
-    struct ext2_inode inode;
-    fseek(fp, inode_offset, SEEK_SET);
-    fread(&inode, sizeof(inode), 1, fp);
-
-    printf("file format and access rights: 0x%x\n", inode.i_mode);
-    printf("user id: %u\n", inode.i_uid);
-    printf("lower 32-bit file size: %u\n", inode.i_size);
-    printf("access time: %u\n", inode.i_atime);
-    printf("creation time: %u\n", inode.i_ctime);
-    printf("modification time: %u\n", inode.i_mtime);
-    printf("deletion time: %u\n", inode.i_dtime);
-    printf("group id: %u\n", inode.i_gid);
-    printf("link count inode: %u\n", inode.i_links_count);
-    printf("512-bytes blocks: %u\n", inode.i_blocks);
-    printf("ext2 flags: %u\n", inode.i_flags);
-    printf("reserved (Linux): %u\n", inode.i_osd1);
-    for (int i = 0; i < 15; i++) {
-        printf("pointer[%d]: %u\n", i, inode.i_block[i]);
+    struct ext2_inode* inode = malloc(sizeof(struct ext2_inode));
+    if (!inode) {
+        perror("Erro ao alocar inode");
+        return NULL;
     }
-    printf("file version (nfs): %u\n", inode.i_generation);
-    printf("block number extended attributes: %u\n", inode.i_file_acl);
-    printf("higher 32-bit file size: %u\n", inode.i_dir_acl);
-    printf("location file fragment: %u\n", inode.i_faddr);
-    fseek(fp, BASE_OFFSET, SEEK_SET);
+    fseek(fp, inode_offset, SEEK_SET);
+    fread(inode, sizeof(struct ext2_inode), 1, fp);
+    return inode;
+}
+
+void print_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
+    struct ext2_inode* inode = get_inode(fp, sb, inode_num);
+    printf("file format and access rights: 0x%x\n", inode->i_mode);
+    printf("user id: %u\n", inode->i_uid);
+    printf("lower 32-bit file size: %u\n", inode->i_size);
+    printf("access time: %u\n", inode->i_atime);
+    printf("creation time: %u\n", inode->i_ctime);
+    printf("modification time: %u\n", inode->i_mtime);
+    printf("deletion time: %u\n", inode->i_dtime);
+    printf("group id: %u\n", inode->i_gid);
+    printf("link count inode: %u\n", inode->i_links_count);
+    printf("512-bytes blocks: %u\n", inode->i_blocks);
+    printf("ext2 flags: %u\n", inode->i_flags);
+    printf("reserved (Linux): %u\n", inode->i_osd1);
+    for (int i = 0; i < 15; i++) {
+        printf("pointer[%d]: %u\n", i, inode->i_block[i]);
+    }
+    printf("file version (nfs): %u\n", inode->i_generation);
+    printf("block number extended attributes: %u\n", inode->i_file_acl);
+    printf("higher 32-bit file size: %u\n", inode->i_dir_acl);
+    printf("location file fragment: %u\n", inode->i_faddr);
+    free(inode);
+}
+
+void list_directory(FILE *fp, struct ext2_super_block* sb, int inode_num) {
+    struct ext2_inode* inode = get_inode(fp, sb, inode_num); 
+    if (!inode || !(inode->i_mode & 0x4000)) {
+        printf("Inode não é um diretório.\n");
+        free(inode);
+        return;
+    }
+    uint8_t *block = malloc(1024 << sb->s_log_block_size);
+    if (!block) {
+        perror("malloc");
+        free(inode);
+        return;
+    }
+    for (int i = 0; i < 12; i++) {
+        if (inode->i_block[i] == 0)
+            continue;
+        fseek(fp, inode->i_block[i] * 1024 << sb->s_log_block_size, SEEK_SET);
+        fread(block, 1024 << sb->s_log_block_size, 1, fp);
+        uint32_t offset = 0;
+        while (offset < 1024 << sb->s_log_block_size) {
+            struct ext2_dir_entry *entry = (struct ext2_dir_entry *)(block + offset);
+            if (entry->inode != 0) {
+                char name[256] = {0};
+                memcpy(name, entry->name, entry->name_len);
+                name[entry->name_len] = '\0';
+                printf("%s\n", name);
+                printf("inode: %u\n", entry->inode);
+                printf("record lenght: %u\n", entry->rec_len);
+                printf("name lenght: %u\n", entry->name_len);
+                printf("file type: %u\n\n", entry->file_type);
+            }
+            if (entry->rec_len == 0) break;
+            offset += entry->rec_len;
+        }
+    }
+    free(inode);
+    free(block);
 }
 
 int main(int argc, char *argv[]) {
@@ -305,6 +355,8 @@ int main(int argc, char *argv[]) {
             }
         } else if (strcmp(token, "info") == 0) {
             info(fp, &sb);
+        } else if (strcmp(token, "ls") == 0) {
+            list_directory(fp, &sb, inode_dir_atual);
         } else if (strcmp(token, "exit") == 0) {
             break;
         } else {
