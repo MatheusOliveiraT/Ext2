@@ -3,12 +3,11 @@
 #include <stdint.h>
 #include <string.h>
 
-#define BASE_OFFSET 1024 // Superbloco começa no offset 1024
+#define BASE_OFFSET 1024
 #define EXT2_SUPER_MAGIC 0xEF53
 
-char* dir_atual = "/";
+char dir_atual[256] = "/";
 
-// Estrutura simplificada do Superbloco (tamanho: 1024 bytes)
 struct ext2_super_block {
     uint32_t s_inodes_count;
     uint32_t s_blocks_count;
@@ -58,6 +57,15 @@ struct ext2_super_block {
     uint16_t s_desc_size;            
     uint32_t s_default_mount_opts;    
     uint32_t s_first_meta_bg; 
+};
+
+struct ext2_group_desc {
+    uint32_t bg_block_bitmap;
+    uint32_t bg_inode_bitmap;
+    uint32_t bg_inode_table;
+    uint16_t bg_free_blocks_count;
+    uint16_t bg_free_inodes_count;
+    uint16_t bg_used_dirs_count;
 };
 
 void print_superblock(struct ext2_super_block* sb) {
@@ -123,6 +131,38 @@ void print_superblock(struct ext2_super_block* sb) {
     printf("first meta block group: %u\n", sb->s_first_meta_bg);
 }
 
+int print_groups(FILE* fp, struct ext2_super_block* sb) {
+    uint32_t block_size = 1024 << sb->s_log_block_size;
+    uint32_t total_blocks = (sb->s_blocks_count + sb->s_blocks_per_group - 1) / sb->s_blocks_per_group;
+    uint32_t desc_size = sb->s_desc_size ? sb->s_desc_size : 32;
+
+    uint64_t offset;
+    if (block_size == 1024) { 
+        offset = 2 * block_size;
+    } else { 
+        offset = block_size;
+    }
+
+    fseek(fp, BASE_OFFSET, SEEK_SET);
+    for (uint32_t i = 0; i < total_blocks; i++) {
+        struct ext2_group_desc gd;
+        
+        fseek(fp, offset + i * desc_size, SEEK_SET);
+        fread(&gd, sizeof(gd), 1, fp);
+
+        printf("Block Group Descriptor %u:\n", i);
+        printf("block bitmap: %u\n", gd.bg_block_bitmap);
+        printf("inode bitmap: %u\n", gd.bg_inode_bitmap);
+        printf("inode table: %u\n", gd.bg_inode_table);
+        printf("free blocks count: %u\n", gd.bg_free_blocks_count);
+        printf("free inodes count: %u\n", gd.bg_free_inodes_count);
+        printf("used dirs count: %u\n\n", gd.bg_used_dirs_count);
+    }
+    fseek(fp, BASE_OFFSET, SEEK_SET);
+
+    return 0;
+}   
+
 int main(int argc, char *argv[]) {
     FILE *fp;
     struct ext2_super_block sb;
@@ -149,14 +189,29 @@ int main(int argc, char *argv[]) {
 
     while(1) {
         printf("[%s]$> ", dir_atual);
+
         char entrada[256];
-        scanf("%s", &entrada);
-        if (strcmp(entrada, "print") == 0) {
-            print_superblock(&sb);
-        } else if (strcmp(entrada, "exit") == 0) {
+        if (fgets(entrada, sizeof(entrada), stdin) == NULL) {
+            break;
+        }
+        entrada[strcspn(entrada, "\n")] = '\0';
+
+        char *token = strtok(entrada, " ");
+        if (token == NULL) continue;
+
+        if (strcmp(token, "print") == 0) {
+            token = strtok(NULL, " ");
+            if (token && strcmp(token, "superblock") == 0) {
+                print_superblock(&sb);
+            } else if (token && strcmp(token, "groups") == 0) {
+                print_groups(fp, &sb);
+            } else {
+                printf("invalid sintax.\n");
+            }
+        } else if (strcmp(token, "exit") == 0) {
             break;
         } else {
-            printf("Invalid entry.\n");
+            printf("invalid sintax.\n");
         }
     }
 
