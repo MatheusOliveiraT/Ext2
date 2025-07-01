@@ -68,6 +68,27 @@ struct ext2_group_desc {
     uint16_t bg_used_dirs_count;
 };
 
+struct ext2_inode {
+    uint16_t i_mode;
+    uint16_t i_uid;
+    uint32_t i_size;
+    uint32_t i_atime;
+    uint32_t i_ctime;
+    uint32_t i_mtime;
+    uint32_t i_dtime;
+    uint16_t i_gid;
+    uint16_t i_links_count;
+    uint32_t i_blocks;
+    uint32_t i_flags;
+    uint32_t i_osd1;
+    uint32_t i_block[15];
+    uint32_t i_generation;
+    uint32_t i_file_acl;
+    uint32_t i_dir_acl;
+    uint32_t i_faddr;
+    uint8_t  i_osd2[12];
+};
+
 void print_superblock(struct ext2_super_block* sb) {
     printf("inodes count: %u\n", sb->s_inodes_count);
     printf("blocks count: %u\n", sb->s_blocks_count);
@@ -131,7 +152,7 @@ void print_superblock(struct ext2_super_block* sb) {
     printf("first meta block group: %u\n", sb->s_first_meta_bg);
 }
 
-int print_groups(FILE* fp, struct ext2_super_block* sb) {
+void print_groups(FILE* fp, struct ext2_super_block* sb) {
     uint32_t block_size = 1024 << sb->s_log_block_size;
     uint32_t total_blocks = (sb->s_blocks_count + sb->s_blocks_per_group - 1) / sb->s_blocks_per_group;
     uint32_t desc_size = sb->s_desc_size ? sb->s_desc_size : 32;
@@ -159,9 +180,48 @@ int print_groups(FILE* fp, struct ext2_super_block* sb) {
         printf("used dirs count: %u\n\n", gd.bg_used_dirs_count);
     }
     fseek(fp, BASE_OFFSET, SEEK_SET);
-
-    return 0;
 }   
+
+void print_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
+    uint32_t block_size = 1024 << sb->s_log_block_size;
+    uint32_t group = (inode_num - 1) / sb->s_inodes_per_group;
+    uint32_t index = (inode_num - 1) % sb->s_inodes_per_group;
+    uint64_t gdt_offset = (block_size == 1024) ? 2 * block_size : block_size;
+
+    fseek(fp, BASE_OFFSET, SEEK_SET);
+    struct ext2_group_desc gd;
+    fseek(fp, gdt_offset + group * sizeof(gd), SEEK_SET);
+    fread(&gd, sizeof(gd), 1, fp);
+
+    uint32_t inode_table_block = gd.bg_inode_table;
+    uint32_t inode_size = sb->s_inode_size;
+    uint64_t inode_offset = (uint64_t)inode_table_block * block_size + index * inode_size;
+
+    struct ext2_inode inode;
+    fseek(fp, inode_offset, SEEK_SET);
+    fread(&inode, sizeof(inode), 1, fp);
+
+    printf("file format and access rights: 0x%x\n", inode.i_mode);
+    printf("user id: %u\n", inode.i_uid);
+    printf("lower 32-bit file size: %u\n", inode.i_size);
+    printf("access time: %u\n", inode.i_atime);
+    printf("creation time: %u\n", inode.i_ctime);
+    printf("modification time: %u\n", inode.i_mtime);
+    printf("deletion time: %u\n", inode.i_dtime);
+    printf("group id: %u\n", inode.i_gid);
+    printf("link count inode: %u\n", inode.i_links_count);
+    printf("512-bytes blocks: %u\n", inode.i_blocks);
+    printf("ext2 flags: %u\n", inode.i_flags);
+    printf("reserved (Linux): %u\n", inode.i_osd1);
+    for (int i = 0; i < 15; i++) {
+        printf("pointer[%d]: %u\n", i, inode.i_block[i]);
+    }
+    printf("file version (nfs): %u\n", inode.i_generation);
+    printf("block number extended attributes: %u\n", inode.i_file_acl);
+    printf("higher 32-bit file size: %u\n", inode.i_dir_acl);
+    printf("location file fragment: %u\n", inode.i_faddr);
+    fseek(fp, BASE_OFFSET, SEEK_SET);
+}
 
 int main(int argc, char *argv[]) {
     FILE *fp;
@@ -205,6 +265,19 @@ int main(int argc, char *argv[]) {
                 print_superblock(&sb);
             } else if (token && strcmp(token, "groups") == 0) {
                 print_groups(fp, &sb);
+            } else if (token && strcmp(token, "inode") == 0) {
+                token = strtok(NULL, " ");
+                if (!token) {
+                    printf("invalid sintax.\n");
+                    continue;
+                }
+                char *endptr;
+                long num = strtol(token, &endptr, 10);
+                if (token && num) {
+                    print_inode(fp, &sb, num);
+                } else {
+                    printf("invalid sintax.\n");
+                }
             } else {
                 printf("invalid sintax.\n");
             }
