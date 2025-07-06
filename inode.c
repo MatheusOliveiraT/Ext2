@@ -1,11 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include "structs.c"
+#include "structs.h"
+#include "inode.h"
 
-#pragma once
-
-struct ext2_inode* get_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
+struct ext2_inode* get_inode(FILE* fp, struct ext2_super_block* sb, uint32_t inode_num) {
     uint32_t block_size = 1024 << sb->s_log_block_size;
     uint32_t inodes_per_group = sb->s_inodes_per_group;
     uint32_t group = (inode_num - 1) / inodes_per_group;

@@ -2,59 +2,18 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include "structs.c"
-#include "print.c"
-#include "inode.c"
-#include "path.c"
-#include "cat.c"
+
+#include "structs.h"
+#include "cd.h"
+#include "print.h"
+#include "inode.h"
+#include "path.h"
+#include "cat.h"
+#include "touch.h"
+#include "ext2_global.h"
 
 #define BASE_OFFSET 1024
 #define EXT2_SUPER_MAGIC 0xEF53
-
-char current_path[256] = "/";
-struct ext2_inode *current_inode;
-
-void update_path(const char* path) {
-    if (strcmp(path, "/") == 0) {
-        strcpy(current_path, "/");
-    }
-    else if (strcmp(path, "..") == 0) {
-        if (strcmp(current_path, "/") == 0) return;
-        char* last_slash = strrchr(current_path, '/');
-        if (last_slash != NULL) {
-            *last_slash = '\0'; 
-            if (strlen(current_path) == 0) {
-                strcpy(current_path, "/");
-            }
-        }
-    }
-    else if (strcmp(path, ".") == 0) {
-        return;
-    }
-    else if (path[0] == '/') {
-        strncpy(current_path, path, sizeof(current_path) - 1);
-        current_path[sizeof(current_path) - 1] = '\0';
-    }
-    else {
-        if (strcmp(current_path, "/") != 0) {
-            strncat(current_path, "/", sizeof(current_path) - strlen(current_path) - 1);
-        }
-        strncat(current_path, path, sizeof(current_path) - strlen(current_path) - 1);
-    }
-}
-
-void change_directory(FILE* fp, struct ext2_super_block* sb, const char* path, uint32_t block_size) {
-    struct ext2_inode* destino = resolve_path(fp, sb, path, current_inode, block_size);
-    if (!destino) return;
-    if ((destino->i_mode & 0xF000) != 0x4000) {
-        printf("'%s' is not an directory.\n", path);
-        free(destino);
-        return;
-    }
-    free(current_inode);
-    current_inode = destino;
-    update_path(path);
-}
 
 int main(int argc, char *argv[]) {
     FILE *fp;
@@ -63,7 +22,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Uso: %s <imagem ext2>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
-    fp = fopen(argv[1], "rb");
+    fp = fopen(argv[1], "rb+");
     if (!fp) {
         perror("Erro ao abrir imagem");
         exit(EXIT_FAILURE);
@@ -75,7 +34,8 @@ int main(int argc, char *argv[]) {
         fclose(fp);
         exit(EXIT_FAILURE);
     }
-    current_inode = get_inode(fp, &sb, 2);
+    current_inode_number = 2;
+    current_inode = get_inode(fp, &sb, current_inode_number);
     while(1) {
         printf("[%s]$> ", current_path);
         char entrada[256];
@@ -111,6 +71,8 @@ int main(int argc, char *argv[]) {
             info(fp, &sb);
         } else if (strcmp(token, "ls") == 0) {
             list_directory(fp, &sb, current_inode);
+        } else if (strcmp(token, "pwd") == 0) {
+            printf("%s\n", current_path);
         } else if (strcmp(token, "cd") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
@@ -132,6 +94,20 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             attr_file(fp, &sb, token, current_inode, 1024 << sb.s_log_block_size);
+        } else if (strcmp(token, "touch") == 0) {
+            token = strtok(NULL, " ");
+            if (!token) {
+                printf("invalid sintax.\n");
+                continue;
+            }
+            touch(fp, &sb, current_inode, token, 1024 << sb.s_log_block_size);
+        } else if (strcmp(token, "mkdir") == 0) {
+            token = strtok(NULL, " ");
+            if (!token) {
+                printf("invalid sintax.\n");
+                continue;
+            }
+            mkdir_ext2(fp, &sb, current_inode, token, &current_inode_number, 1024 << sb.s_log_block_size);
         } else if (strcmp(token, "exit") == 0) {
             break;
         } else {

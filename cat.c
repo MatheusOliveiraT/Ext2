@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
-#include "structs.c"
-
-#pragma once
+#include "structs.h"
+#include "ext2_global.h"
+#include "cat.h"
+#include "path.h"
 
 void read_and_print_block(FILE* fp, uint8_t* buffer, uint32_t block_num, uint32_t to_read, uint32_t block_size) {
     if (block_num == 0 || to_read == 0) return;
@@ -12,7 +14,8 @@ void read_and_print_block(FILE* fp, uint8_t* buffer, uint32_t block_num, uint32_
 }
 
 void cat_file(FILE* fp, struct ext2_super_block* sb, const char* path, struct ext2_inode* current_inode, uint32_t block_size) {
-    struct ext2_inode* file_inode = resolve_path(fp, sb, path, current_inode, block_size);
+    uint32_t dummy_inode_num;
+    struct ext2_inode* file_inode = resolve_path(fp, sb, path, current_inode, current_inode_number, block_size, &dummy_inode_num, false);
     if (!file_inode) return;
     if ((file_inode->i_mode & 0xF000) != 0x8000) {
         printf("'%s' is not a regular file.\n", path);

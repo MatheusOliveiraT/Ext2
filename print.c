@@ -3,17 +3,17 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
-#include "structs.c"
-#include "inode.c"
-#include "path.c"
-
-#pragma once
+#include "structs.h"
+#include "inode.h"
+#include "path.h"
+#include "ext2_global.h"
+#include "print.h"
 
 void format_permissions(uint16_t mode, char* out) {
     out[0] = (mode & 0xF000) == 0x4000 ? 'd' :
              (mode & 0xF000) == 0x8000 ? 'f' :
              (mode & 0xF000) == 0xA000 ? 'l' : '?';
-    const char perms[] = {'r', 'w', 'x'};
+    // const char perms[] = {'r', 'w', 'x'};
     for (int i = 0; i < 3; i++) {
         out[1 + i*3 + 0] = (mode & (1 << (8 - i*3))) ? 'r' : '-';
         out[1 + i*3 + 1] = (mode & (1 << (7 - i*3))) ? 'w' : '-';
@@ -49,7 +49,7 @@ void info(FILE* fp, struct ext2_super_block* sb) {
 
 void list_directory(FILE *fp, struct ext2_super_block* sb, struct ext2_inode* inode) {
     if (!inode || !(inode->i_mode & 0x4000)) {
-        printf("Inode não é um diretório.\n");
+        printf("inode is not a directory.\n");
         return;
     }
     uint8_t *block = malloc(1024 << sb->s_log_block_size);
@@ -63,7 +63,7 @@ void list_directory(FILE *fp, struct ext2_super_block* sb, struct ext2_inode* in
         fseek(fp, inode->i_block[i] * 1024 << sb->s_log_block_size, SEEK_SET);
         fread(block, 1024 << sb->s_log_block_size, 1, fp);
         uint32_t offset = 0;
-        while (offset < 1024 << sb->s_log_block_size) {
+        while (offset < (uint32_t)(1024 << sb->s_log_block_size)) {
             struct ext2_dir_entry *entry = (struct ext2_dir_entry *)(block + offset);
             if (entry->inode != 0) {
                 char name[256] = {0};
@@ -194,7 +194,8 @@ void print_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
 }
 
 void attr_file(FILE* fp, struct ext2_super_block* sb, const char* path, struct ext2_inode* current_inode, uint32_t block_size) {
-    struct ext2_inode* inode = resolve_path(fp, sb, path, current_inode, block_size);
+    uint32_t dummy_inode_num;
+    struct ext2_inode* inode = resolve_path(fp, sb, path, current_inode, current_inode_number, block_size, &dummy_inode_num, false);
     if (!inode) return;
     char perms[11];
     format_permissions(inode->i_mode, perms);

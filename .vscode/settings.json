@@ -1,6 +1,10 @@
 {
     "files.associations": {
         ".fantomasignore": "ignore",
-        "string.h": "c"
+        "stdint.h": "c",
+        "stdlib.h": "c",
+        "stdio.h": "c",
+        "structs.h": "c",
+        "ext2_global.h": "c"
     }
 }
