@@ -2,6 +2,8 @@
 #define EXT2_TOUCH_H
 
 #include "structs.h"
+#include "path.h"
+#include "ext2_global.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>

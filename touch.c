@@ -2,10 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "structs.h"
 #include "touch.h"
-#include "path.h"
-#include "ext2_global.h"
 
 int find_free_inode(FILE* fp, struct ext2_super_block* sb, struct ext2_group_desc* gd, uint32_t group, uint32_t block_size, uint32_t inodes_per_group) {
     uint8_t* inode_bitmap = malloc(block_size);

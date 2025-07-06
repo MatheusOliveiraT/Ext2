@@ -3,17 +3,12 @@
 #include <stdint.h>
 #include <string.h>
 #include <time.h>
-#include "structs.h"
-#include "inode.h"
-#include "path.h"
-#include "ext2_global.h"
 #include "print.h"
 
 void format_permissions(uint16_t mode, char* out) {
     out[0] = (mode & 0xF000) == 0x4000 ? 'd' :
              (mode & 0xF000) == 0x8000 ? 'f' :
              (mode & 0xF000) == 0xA000 ? 'l' : '?';
-    // const char perms[] = {'r', 'w', 'x'};
     for (int i = 0; i < 3; i++) {
         out[1 + i*3 + 0] = (mode & (1 << (8 - i*3))) ? 'r' : '-';
         out[1 + i*3 + 1] = (mode & (1 << (7 - i*3))) ? 'w' : '-';
@@ -169,7 +164,7 @@ void print_groups(FILE* fp, struct ext2_super_block* sb) {
     }
 }   
 
-void print_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
+void print_inode(FILE* fp, struct ext2_super_block* sb, uint32_t inode_num) {
     struct ext2_inode* inode = get_inode(fp, sb, inode_num);
     printf("file format and access rights: 0x%x\n", inode->i_mode);
     printf("user id: %u\n", inode->i_uid);
@@ -191,6 +186,233 @@ void print_inode(FILE* fp, struct ext2_super_block* sb, int inode_num) {
     printf("higher 32-bit file size: %u\n", inode->i_dir_acl);
     printf("location file fragment: %u\n", inode->i_faddr);
     free(inode);
+}
+
+void print_rootdir(FILE* fp, struct ext2_super_block* sb, uint32_t block_size) {
+    printf("--- root directory (/) ---\n");
+    print_dir(fp, sb, "/", current_inode, current_inode_number, block_size);
+}
+
+void print_dir(FILE* fp, struct ext2_super_block* sb, const char* path, struct ext2_inode* current_dir_inode, uint32_t current_dir_inode_num, uint32_t block_size) {
+    uint32_t target_inode_num;
+    struct ext2_inode* dir_inode = resolve_path(fp, sb, path, current_dir_inode, current_dir_inode_num, block_size, &target_inode_num, false);
+    if (!dir_inode) {
+        printf("directory '%s' not found or is invalid.\n", path);
+        return;
+    }
+    if ((dir_inode->i_mode & 0xF000) != 0x4000) {
+        printf("'%s' is not a directory.\n", path);
+        free(dir_inode);
+        return;
+    }
+    printf("--- directory: %s (inode: %u) ---\n", path, target_inode_num);
+    printf("%-10s %-10s %-10s %-10s %-20s %s\n", "inode", "type", "name len", "rec len", "name", "permissions");
+    printf("--------------------------------------------------------------------------------\n");
+    uint8_t* block_buffer = malloc(block_size);
+    if (!block_buffer) {
+        perror("malloc");
+        free(dir_inode);
+        return;
+    }
+    for (int i = 0; i < 12 && dir_inode->i_block[i]; i++) {
+        fseek(fp, dir_inode->i_block[i] * block_size, SEEK_SET);
+        fread(block_buffer, block_size, 1, fp);
+        uint32_t offset = 0;
+        while (offset < block_size) {
+            struct ext2_dir_entry* entry = (struct ext2_dir_entry*)(block_buffer + offset);
+            if (entry->rec_len == 0) break;
+            char name[256] = {0};
+            memcpy(name, entry->name, entry->name_len);
+            name[entry->name_len] = '\0';
+            struct ext2_inode* entry_inode = get_inode(fp, sb, entry->inode);
+            char type_char = '?';
+            char perms_str[11] = "----------";
+            if (entry_inode) {
+                if ((entry_inode->i_mode & 0xF000) == 0x8000) type_char = '-';
+                else if ((entry_inode->i_mode & 0xF000) == 0x4000) type_char = 'd';
+                else if ((entry_inode->i_mode & 0xF000) == 0xA000) type_char = 'l';
+                format_permissions(entry_inode->i_mode, perms_str);
+                free(entry_inode);
+            }
+            printf("%-10u %-10c %-10u %-10u %-20s %s\n",
+                   entry->inode, type_char, entry->name_len, entry->rec_len, name, perms_str);
+            offset += entry->rec_len;
+        }
+    }
+    free(block_buffer);
+    free(dir_inode);
+}
+
+int get_bit(FILE* fp, uint32_t bitmap_block, uint32_t bit_index, uint32_t block_size) {
+    uint8_t* bitmap_buffer = malloc(block_size);
+    if (!bitmap_buffer) { perror("malloc"); return -1; }
+    read_block(fp, bitmap_block, block_size, bitmap_buffer);
+    int byte_index = bit_index / 8;
+    int bit_in_byte = bit_index % 8;
+    int bit_value = (bitmap_buffer[byte_index] >> bit_in_byte) & 1;
+    free(bitmap_buffer);
+    return bit_value;
+}
+
+int read_block(FILE* fp, uint32_t block_num, uint32_t block_size, uint8_t* buffer) {
+    if (!fp || !buffer) {
+        fprintf(stderr, "error: invalid file pointer or buffer in read_block.\n");
+        return -1;
+    }
+    off_t offset = (off_t)block_num * block_size;
+    if (fseek(fp, offset, SEEK_SET) != 0) {
+        perror("error seeking to block");
+        return -1;
+    }
+    if (fread(buffer, 1, block_size, fp) != block_size) {
+        perror("error reading block");
+        return -1;
+    }
+    return 0;
+}
+
+struct ext2_group_desc* get_group_descriptor(FILE* fp, struct ext2_super_block* sb, uint32_t group_id) {
+    if (!fp || !sb) {
+        fprintf(stderr, "error: invalid file pointer or superblock in get_group_descriptor.\n");
+        return NULL;
+    }
+    uint32_t block_size = 1024 << sb->s_log_block_size;
+    uint32_t bgdt_start_block = sb->s_first_data_block + 1;
+    uint32_t num_block_groups = (sb->s_blocks_count + sb->s_blocks_per_group - 1) / sb->s_blocks_per_group;
+    if (group_id >= num_block_groups) {
+        fprintf(stderr, "error: group ID %u is out of bounds (max %u).\n", group_id, num_block_groups - 1);
+        return NULL;
+    }
+    uint32_t gd_size = sizeof(struct ext2_group_desc);
+    uint32_t gd_offset_in_gdt = group_id * gd_size;
+    uint32_t gd_block_num = bgdt_start_block + (gd_offset_in_gdt / block_size);
+    uint32_t gd_offset_within_block = gd_offset_in_gdt % block_size;
+    uint8_t* block_buffer = malloc(block_size);
+    if (!block_buffer) {
+        perror("malloc");
+        return NULL;
+    }
+    if (read_block(fp, gd_block_num, block_size, block_buffer) != 0) {
+        fprintf(stderr, "error: could not read block %u for group descriptor.\n", gd_block_num);
+        free(block_buffer);
+        return NULL;
+    }
+    struct ext2_group_desc* gd = malloc(gd_size);
+    if (!gd) {
+        perror("malloc");
+        free(block_buffer);
+        return NULL;
+    }
+    memcpy(gd, block_buffer + gd_offset_within_block, gd_size);
+    free(block_buffer);
+    return gd;
+}
+
+void print_inode_bitmap(FILE* fp, struct ext2_super_block* sb, uint32_t group_id, uint32_t block_size) {
+    struct ext2_group_desc* gd = get_group_descriptor(fp, sb, group_id);
+    if (!gd) {
+        printf("error: could not get group descriptor for group %u.\n", group_id);
+        return;
+    }
+    printf("--- inode bitmap for block group %u (block: %u) ---\n", group_id, gd->bg_inode_bitmap);
+    uint32_t inodes_per_group = sb->s_inodes_per_group;
+    if (group_id == (uint32_t)(sb->s_block_group_nr - 1)) {
+        inodes_per_group = sb->s_inodes_count - (group_id * sb->s_inodes_per_group);
+    }
+    uint8_t* bitmap_buffer = malloc(block_size);
+    if (!bitmap_buffer) {
+        perror("malloc");
+        free(gd);
+        return;
+    }
+    read_block(fp, gd->bg_inode_bitmap, block_size, bitmap_buffer);
+    for (uint32_t i = 0; i < inodes_per_group; i++) {
+        int byte_index = i / 8;
+        int bit_in_byte = i % 8;
+        int bit_value = (bitmap_buffer[byte_index] >> bit_in_byte) & 1;
+        printf("%d", bit_value);
+        if ((i + 1) % 8 == 0) printf(" ");
+        if ((i + 1) % 64 == 0) printf("\n");
+    }
+    printf("\n");
+    free(bitmap_buffer);
+    free(gd);
+}
+
+void print_block_bitmap(FILE* fp, struct ext2_super_block* sb, uint32_t group_id, uint32_t block_size) {
+    struct ext2_group_desc* gd = get_group_descriptor(fp, sb, group_id);
+    if (!gd) {
+        printf("error: could not get group descriptor for group %u.\n", group_id);
+        return;
+    }
+    printf("--- block bitmap for block group %u (block: %u) ---\n", group_id, gd->bg_block_bitmap);
+    uint32_t blocks_per_group = sb->s_blocks_per_group;
+    if (group_id == (uint32_t)(sb->s_block_group_nr - 1)) {
+        blocks_per_group = sb->s_blocks_count - (group_id * sb->s_blocks_per_group);
+    }
+    uint8_t* bitmap_buffer = malloc(block_size);
+    if (!bitmap_buffer) {
+        perror("malloc");
+        free(gd);
+        return;
+    }
+    read_block(fp, gd->bg_block_bitmap, block_size, bitmap_buffer);
+    for (uint32_t i = 0; i < blocks_per_group; i++) {
+        int byte_index = i / 8;
+        int bit_in_byte = i % 8;
+        int bit_value = (bitmap_buffer[byte_index] >> bit_in_byte) & 1;
+        printf("%d", bit_value);
+        if ((i + 1) % 8 == 0) printf(" ");
+        if ((i + 1) % 64 == 0) printf("\n");
+    }
+    printf("\n");
+    free(bitmap_buffer);
+    free(gd);
+}
+
+void print_block_content(FILE* fp, uint32_t block_num, uint32_t block_size) {
+    if (block_num == 0) {
+        printf("cannot print content of block 0 (invalid block number).\n");
+        return;
+    }
+    printf("--- content of block %u (size: %u bytes) ---\n", block_num, block_size);
+    uint8_t* buffer = malloc(block_size);
+    if (!buffer) {
+        perror("malloc");
+        return;
+    }
+    fseek(fp, block_num * block_size, SEEK_SET);
+    fread(buffer, block_size, 1, fp);
+    for (uint32_t i = 0; i < block_size; i++) {
+        printf("%02x ", buffer[i]);
+        if ((i + 1) % 16 == 0) {
+            printf(" | ");
+            for (uint32_t j = i - 15; j <= i; j++) {
+                if (buffer[j] >= 32 && buffer[j] <= 126) {
+                    printf("%c", buffer[j]);
+                } else {
+                    printf(".");
+                }
+            }
+            printf("\n");
+        }
+    }
+    if (block_size % 16 != 0) {
+        int remaining = 16 - (block_size % 16);
+        for (int i = 0; i < remaining; i++) {
+            printf("   ");
+        }
+        printf(" | ");
+        for (uint32_t j = block_size - (block_size % 16); j < block_size; j++) {
+            if (buffer[j] >= 32 && buffer[j] <= 126) {
+                printf("%c", buffer[j]);
+            } else {
+                printf(".");
+            }
+        }
+        printf("\n");
+    }
+    free(buffer);
 }
 
 void attr_file(FILE* fp, struct ext2_super_block* sb, const char* path, struct ext2_inode* current_inode, uint32_t block_size) {

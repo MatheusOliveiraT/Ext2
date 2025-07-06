@@ -21,7 +21,7 @@ Operações:
 - `rmdir <dir>`: remove o diretório *dir*, se existir e estiver vazio.
 - `rename <filename> <newfilename>` : renomeia arquivo *filename* para *newfilename*.
 - `cp <source_path> <target_path>`: copia um arquivo de origem (*source_path*) para destino (*target_path*). A origem e o destino devem ser uma partição do disco e o  volume ext2 ou vice-versa.
-- `echo "text" > <filename>`: substitui o conteúdo de um arquivo existente com o valor de *text* Cria um arquivo novo caso ele não exista.
+- `echo "text" > <filename>`: substitui o conteúdo de um arquivo existente com o valor de *text*. Cria um arquivo novo caso ele não exista.
 - `print [ superblock | groups | inode | rootdir | dir | inodebitmap | blockbitmap | attr | block ]`: exibe informações do sistema ext2.
 
 Limitações:

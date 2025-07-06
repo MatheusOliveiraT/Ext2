@@ -47,6 +47,10 @@ int main(int argc, char *argv[]) {
         if (token == NULL) continue;
         if (strcmp(token, "print") == 0) {
             token = strtok(NULL, " ");
+            if (token == NULL) {
+                printf("invalid sintax. expected: print [ superblock | groups | inode | rootdir | dir | inodebitmap | blockbitmap | attr | block ]\n");
+                continue;
+            }
             if (token && strcmp(token, "superblock") == 0) {
                 print_superblock(&sb);
             } else if (token && strcmp(token, "groups") == 0) {
@@ -59,10 +63,65 @@ int main(int argc, char *argv[]) {
                 }
                 char *endptr;
                 long num = strtol(token, &endptr, 10);
-                if (token && num) {
+                if (endptr != token) {
                     print_inode(fp, &sb, num);
                 } else {
                     printf("invalid sintax. expected: print inode <inode_num>\n");
+                }
+            } else if (strcmp(token, "rootdir") == 0) {
+                print_rootdir(fp, &sb, 1024 << sb.s_log_block_size);
+            } else if (strcmp(token, "dir") == 0) {
+                token = strtok(NULL, " ");
+                if (!token) {
+                    printf("invalid sintax. expected: print dir <path>\n");
+                    continue;
+                }
+                print_dir(fp, &sb, token, current_inode, current_inode_number, 1024 << sb.s_log_block_size);
+            } else if (strcmp(token, "inodebitmap") == 0) {
+                token = strtok(NULL, " ");
+                if (!token) {
+                    printf("invalid sintax. expected: print inodebitmap <group_id>\n");
+                    continue;
+                }
+                char *endptr;
+                long group_id = strtol(token, &endptr, 10);
+                if (endptr != token) {
+                    print_inode_bitmap(fp, &sb, (uint32_t)group_id, 1024 << sb.s_log_block_size);
+                } else {
+                    printf("invalid sintax. expected: print inodebitmap <group_id>.\n");
+                }
+            } else if (strcmp(token, "blockbitmap") == 0) {
+                token = strtok(NULL, " ");
+                if (!token) {
+                    printf("invalid sintax. expected: print blockbitmap <group_id>\n");
+                    continue;
+                }
+                char *endptr;
+                long group_id = strtol(token, &endptr, 10);
+                if (endptr != token) {
+                    print_block_bitmap(fp, &sb, (uint32_t)group_id, 1024 << sb.s_log_block_size);
+                } else {
+                    printf("invalid sintax. expected: print blockbitmap <group_id>.\n");
+                }
+            } else if (strcmp(token, "attr") == 0) {
+                token = strtok(NULL, " ");
+                if (!token) {
+                    printf("invalid sintax. expected: print attr <file_path>\n");
+                    continue;
+                }
+                attr_file(fp, &sb, token, current_inode, 1024 << sb.s_log_block_size);
+            } else if (strcmp(token, "block") == 0) {
+                token = strtok(NULL, " ");
+                if (!token) {
+                    printf("invalid sintax. expected: print block <block_number>\n");
+                    continue;
+                }
+                char *endptr;
+                long block_num = strtol(token, &endptr, 10);
+                if (endptr != token && block_num > 0) {
+                    print_block_content(fp, (uint32_t)block_num, 1024 << sb.s_log_block_size);
+                } else {
+                    printf("invalid sintax. expected: print block <block_number>\n");
                 }
             } else {
                 printf("invalid sintax. expected: print [ superblock | groups | inode | rootdir | dir | inodebitmap | blockbitmap | attr | block ]\n");
