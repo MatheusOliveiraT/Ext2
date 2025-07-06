@@ -5,6 +5,8 @@
         "stdlib.h": "c",
         "stdio.h": "c",
         "structs.h": "c",
-        "ext2_global.h": "c"
+        "ext2_global.h": "c",
+        "stdbool.h": "c",
+        "print.h": "c"
     }
 }

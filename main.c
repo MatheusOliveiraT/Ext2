@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-
 #include "structs.h"
 #include "cd.h"
 #include "print.h"
@@ -11,6 +10,7 @@
 #include "cat.h"
 #include "touch.h"
 #include "ext2_global.h"
+#include "rm.h"
 
 #define BASE_OFFSET 1024
 #define EXT2_SUPER_MAGIC 0xEF53
@@ -108,8 +108,22 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             mkdir_ext2(fp, &sb, current_inode, token, &current_inode_number, 1024 << sb.s_log_block_size);
+        } else if (strcmp(token, "rm") == 0) {
+            token = strtok(NULL, " ");
+            if (!token) {
+                printf("invalid sintax.\n");
+                continue;
+            }
+            remove_entry(fp, &sb, token, 0);
+        } else if (strcmp(token, "rmdir") == 0) {
+            token = strtok(NULL, " ");
+            if (!token) {
+                printf("invalid sintax.\n");
+                continue;
+            }
+            remove_entry(fp, &sb, token, 1);
         } else if (strcmp(token, "exit") == 0) {
-            break;
+                    break;
         } else {
             printf("invalid command.\n");
         }

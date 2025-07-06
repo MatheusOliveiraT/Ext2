@@ -5,7 +5,7 @@
 #include "structs.h"
 #include "touch.h"
 
-int find_free_inode(FILE* fp, struct ext2_group_desc* gd, uint32_t block_size, uint32_t inodes_per_group) {
+int find_free_inode(FILE* fp, struct ext2_super_block* sb, struct ext2_group_desc* gd, uint32_t group, uint32_t block_size, uint32_t inodes_per_group) {
     uint8_t* inode_bitmap = malloc(block_size);
     fseek(fp, gd->bg_inode_bitmap * block_size, SEEK_SET);
     fread(inode_bitmap, block_size, 1, fp);
@@ -14,6 +14,13 @@ int find_free_inode(FILE* fp, struct ext2_group_desc* gd, uint32_t block_size, u
             inode_bitmap[i / 8] |= (1 << (i % 8));
             fseek(fp, gd->bg_inode_bitmap * block_size, SEEK_SET);
             fwrite(inode_bitmap, block_size, 1, fp);
+            sb->s_free_inodes_count--;
+            gd->bg_free_inodes_count--;
+            fseek(fp, BASE_OFFSET, SEEK_SET);
+            fwrite(sb, sizeof(struct ext2_super_block), 1, fp);
+            uint64_t gdt_offset = (block_size == 1024) ? 2 * block_size : block_size;
+            fseek(fp, gdt_offset + group * sizeof(*gd), SEEK_SET);
+            fwrite(gd, sizeof(*gd), 1, fp);
             free(inode_bitmap);
             return i + 1;
         }
@@ -69,7 +76,7 @@ void touch(FILE* fp, struct ext2_super_block* sb, struct ext2_inode* current_ino
     uint64_t gdt_offset = (block_size == 1024) ? 2 * block_size : block_size;
     fseek(fp, gdt_offset + group * sizeof(gd), SEEK_SET);
     fread(&gd, sizeof(gd), 1, fp);
-    int index = find_free_inode(fp, &gd, block_size, sb->s_inodes_per_group);
+    int index = find_free_inode(fp, sb, &gd, 0, block_size, sb->s_inodes_per_group);
     if (index < 0) {
         printf("no inode available.\n");
         return;
@@ -90,16 +97,22 @@ void touch(FILE* fp, struct ext2_super_block* sb, struct ext2_inode* current_ino
     printf("file '%s' created with success.\n", filename);
 }
 
-int find_free_block(FILE* fp, struct ext2_group_desc* gd, uint32_t block_size, uint32_t blocks_per_group) {
+int find_free_block(FILE* fp, struct ext2_super_block* sb, struct ext2_group_desc* gd, uint32_t group, uint32_t block_size, uint32_t blocks_per_group) {
     uint8_t* block_bitmap = malloc(block_size);
     fseek(fp, gd->bg_block_bitmap * block_size, SEEK_SET);
     fread(block_bitmap, block_size, 1, fp);
-
     for (uint32_t i = 0; i < blocks_per_group; i++) {
         if (!(block_bitmap[i / 8] & (1 << (i % 8)))) {
             block_bitmap[i / 8] |= (1 << (i % 8));
             fseek(fp, gd->bg_block_bitmap * block_size, SEEK_SET);
             fwrite(block_bitmap, block_size, 1, fp);
+            sb->s_free_blocks_count--;
+            gd->bg_free_blocks_count--;
+            fseek(fp, BASE_OFFSET, SEEK_SET);
+            fwrite(sb, sizeof(struct ext2_super_block), 1, fp);
+            uint64_t gdt_offset = (block_size == 1024) ? 2 * block_size : block_size;
+            fseek(fp, gdt_offset + group * sizeof(*gd), SEEK_SET);
+            fwrite(gd, sizeof(*gd), 1, fp);
             free(block_bitmap);
             return i + gd->bg_block_bitmap + 1 - gd->bg_block_bitmap;
         }
@@ -114,12 +127,12 @@ void mkdir_ext2(FILE* fp, struct ext2_super_block* sb, struct ext2_inode* curren
     uint64_t gdt_offset = (block_size == 1024) ? 2 * block_size : block_size;
     fseek(fp, gdt_offset + group * sizeof(gd), SEEK_SET);
     fread(&gd, sizeof(gd), 1, fp);
-    int inode_index = find_free_inode(fp, &gd, block_size, sb->s_inodes_per_group);
+    int inode_index = find_free_inode(fp, sb, &gd, 0, block_size, sb->s_inodes_per_group);
     if (inode_index < 0) {
         printf("no free inodes.\n");
         return;
     }
-    int block = find_free_block(fp, &gd, block_size, sb->s_blocks_per_group);
+    int block = find_free_block(fp, sb, &gd, 0, block_size, sb->s_blocks_per_group);
     if (block < 0) {
         printf("no free blocks.\n");
         return;
