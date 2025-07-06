@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
             } else if (token && strcmp(token, "inode") == 0) {
                 token = strtok(NULL, " ");
                 if (!token) {
-                    printf("invalid sintax.\n");
+                    printf("invalid sintax. expected: print inode <inode_num>\n");
                     continue;
                 }
                 char *endptr;
@@ -62,10 +62,10 @@ int main(int argc, char *argv[]) {
                 if (token && num) {
                     print_inode(fp, &sb, num);
                 } else {
-                    printf("invalid sintax.\n");
+                    printf("invalid sintax. expected: print inode <inode_num>\n");
                 }
             } else {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: print [ superblock | groups | inode | rootdir | dir | inodebitmap | blockbitmap | attr | block ]\n");
             }
         } else if (strcmp(token, "info") == 0) {
             info(fp, &sb);
@@ -76,49 +76,49 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(token, "cd") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: cd <path>\n");
                 continue;
             }
             change_directory(fp, &sb, token, 1024 << sb.s_log_block_size);
         } else if (strcmp(token, "cat") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: cat <filename>\n");
                 continue;
             }
             cat_file(fp, &sb, token, current_inode, 1024 << sb.s_log_block_size);
         } else if (strcmp(token, "attr") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: attr <file | dir>\n");
                 continue;
             }
             attr_file(fp, &sb, token, current_inode, 1024 << sb.s_log_block_size);
         } else if (strcmp(token, "touch") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: touch <filename>\n");
                 continue;
             }
             touch(fp, &sb, current_inode, token, 1024 << sb.s_log_block_size);
         } else if (strcmp(token, "mkdir") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: mkdir <dir>\n");
                 continue;
             }
             mkdir_ext2(fp, &sb, current_inode, token, &current_inode_number, 1024 << sb.s_log_block_size);
         } else if (strcmp(token, "rm") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: rm <filename>\n");
                 continue;
             }
             remove_entry(fp, &sb, token, 0);
         } else if (strcmp(token, "rmdir") == 0) {
             token = strtok(NULL, " ");
             if (!token) {
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: rmdir <dir>\n");
                 continue;
             }
             remove_entry(fp, &sb, token, 1);
@@ -128,7 +128,7 @@ int main(int argc, char *argv[]) {
             if (src && dst)
                 cp_file(fp, &sb, current_inode, src, dst, 1024 << sb.s_log_block_size);
             else
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: cp <source_path> <target_path>\n");
         }
         else if (strcmp(token, "rename") == 0) {
             char* oldname = strtok(NULL, " ");
@@ -136,7 +136,15 @@ int main(int argc, char *argv[]) {
             if (oldname && newname)
                 rename_entry(fp, current_inode, oldname, newname, 1024 << sb.s_log_block_size);
             else
-                printf("invalid sintax.\n");
+                printf("invalid sintax. expected: rename <filename> <newfilename>\n");
+        } else if (strncmp(token, "echo", 4) == 0) {
+            const char* rest = token + 5;
+            char content[1024] = {0}, filename[256] = {0};
+            if (sscanf(rest, "\"%[^\"]\" > %s", content, filename) == 2) {
+                echo_to_file(fp, &sb, current_inode, current_inode_number, content, filename, 1024 << sb.s_log_block_size);
+            } else {
+                printf("invalid sintax. expected: echo \"text\" > <filename>\n");
+            }
         } else if (strcmp(token, "exit") == 0) {
             break;
         } else {

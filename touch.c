@@ -295,7 +295,7 @@ void cp_file(FILE* fp, struct ext2_super_block* sb, struct ext2_inode* current_i
         free(second_level);
     }
     new_inode.i_blocks = (new_inode.i_size + 511) / 512;
-    uint64_t inode_offset = ((uint64_t)gd.bg_inode_table * block_size) + (index * sb->s_inode_size);
+    uint64_t inode_offset = ((uint64_t)gd.bg_inode_table * block_size) + ((index - 1) * sb->s_inode_size);
     fseek(fp, inode_offset, SEEK_SET);
     fwrite(&new_inode, sizeof(struct ext2_inode), 1, fp);
     add_directory_entry(fp, current_inode, inode_num, dst, block_size, false);
@@ -340,4 +340,57 @@ void rename_entry(FILE* fp, struct ext2_inode* dir_inode, const char* old_name, 
     }
     printf("entry '%s' not found.\n", old_name);
     free(block);
+}
+
+void echo_to_file(FILE* fp, struct ext2_super_block* sb, struct ext2_inode* current_inode, uint32_t current_inode_number, const char* content, const char* filename, uint32_t block_size) {
+    uint32_t dummy_inode_number;
+    struct ext2_inode* target_inode = resolve_path(fp, sb, filename, current_inode, current_inode_number, block_size, &dummy_inode_number, false);
+    struct ext2_group_desc gd;
+    uint32_t group = 0;
+    uint64_t gdt_offset = (block_size == 1024) ? 2 * block_size : block_size;
+    fseek(fp, gdt_offset + group * sizeof gd, SEEK_SET);
+    fread(&gd, sizeof gd, 1, fp);
+    int inode_index;
+    uint32_t inode_num;
+    if (!target_inode) {
+        inode_index = find_free_inode(fp, sb, &gd, group, block_size, sb->s_inodes_per_group);
+        if (inode_index < 0) {
+            printf("no free inodes.\n");
+            return;
+        }
+        inode_num = group * sb->s_inodes_per_group + inode_index;
+        sb->s_free_inodes_count--;
+        gd.bg_free_inodes_count--;
+        target_inode = calloc(1, sizeof(struct ext2_inode));
+        target_inode->i_mode = 0x81A4;
+        target_inode->i_uid = 0;
+        target_inode->i_gid = 0;
+        target_inode->i_links_count = 1;
+        target_inode->i_ctime = target_inode->i_mtime = target_inode->i_atime = time(NULL);
+        add_directory_entry(fp, current_inode, inode_num, filename, block_size, false);
+    } else {
+        inode_num = dummy_inode_number;
+    }
+    size_t len = strlen(content);
+    int block = find_free_block(fp, sb, &gd, group, block_size, sb->s_blocks_per_group);
+    if (block < 0) {
+        printf("no free blocks.\n");
+        free(target_inode);
+        return;
+    }
+    target_inode->i_block[0] = block;
+    target_inode->i_size = len;
+    target_inode->i_blocks = (len + 511) / 512 * 2;
+    target_inode->i_mtime = target_inode->i_atime = time(NULL);
+    fseek(fp, block * block_size, SEEK_SET);
+    fwrite(content, 1, len, fp);
+    uint64_t inode_offset = ((uint64_t)gd.bg_inode_table * block_size) + (uint64_t)(inode_num % sb->s_inodes_per_group - 1) * sb->s_inode_size;
+    fseek(fp, inode_offset, SEEK_SET);
+    fwrite(target_inode, sb->s_inode_size, 1, fp);
+    fseek(fp, BASE_OFFSET, SEEK_SET);
+    fwrite(sb, sizeof *sb, 1, fp);
+    fseek(fp, gdt_offset + group * sizeof gd, SEEK_SET);
+    fwrite(&gd, sizeof gd, 1, fp);
+    printf("'%s' updated with success.\n", filename);
+    free(target_inode);
 }
