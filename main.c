@@ -122,8 +122,23 @@ int main(int argc, char *argv[]) {
                 continue;
             }
             remove_entry(fp, &sb, token, 1);
+        } else if (strcmp(token, "cp") == 0) {
+            char* src = strtok(NULL, " ");
+            char* dst = strtok(NULL, " ");
+            if (src && dst)
+                cp_file(fp, &sb, current_inode, src, dst, 1024 << sb.s_log_block_size);
+            else
+                printf("invalid sintax.\n");
+        }
+        else if (strcmp(token, "rename") == 0) {
+            char* oldname = strtok(NULL, " ");
+            char* newname = strtok(NULL, " ");
+            if (oldname && newname)
+                rename_entry(fp, current_inode, oldname, newname, 1024 << sb.s_log_block_size);
+            else
+                printf("invalid sintax.\n");
         } else if (strcmp(token, "exit") == 0) {
-                    break;
+            break;
         } else {
             printf("invalid command.\n");
         }
