@@ -8,6 +8,7 @@
 #include "print.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 void format_permissions(uint16_t mode, char* out);
 void format_time(uint32_t epoch, char* out, size_t out_size);
